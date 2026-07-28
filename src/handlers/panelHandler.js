@@ -18,7 +18,8 @@ const NAV_OPTIONS = [
   { label: 'Roles', value: 'roles', emoji: '👤', description: 'Set Admin, Staff, and Moderator roles' },
   { label: 'Channels (General)', value: 'channels1', emoji: '📢', description: 'Mod logs, welcome, leave' },
   { label: 'Channels (Tickets)', value: 'channels2', emoji: '🎫', description: 'Suggestions, ticket category, transcripts' },
-  { label: 'Applications', value: 'applications', emoji: '📝', description: 'Review channel and accept role' },
+  { label: 'Applications (General)', value: 'applications1', emoji: '📝', description: 'Review channel, ping role, open/close' },
+  { label: 'Applications (Roles)', value: 'applications2', emoji: '🎓', description: 'Accept roles and blacklisted roles' },
   { label: 'Close Panel', value: 'close', emoji: '❌', description: 'Dismiss this panel' }
 ];
 
@@ -143,22 +144,19 @@ function channels2Page(guild) {
   return { embed, rows };
 }
 
-function applicationsPage(guild) {
+function applications1Page(guild) {
   const cfg = db.guildConfig.get(guild.id, {});
   const questionCount = (cfg.applicationQuestions || []).length;
-  const acceptRoleIds = cfg.applicationAcceptRoleIds || (cfg.applicationAcceptRoleId ? [cfg.applicationAcceptRoleId] : []);
-  const blacklistRoleIds = cfg.applicationBlacklistRoleIds || [];
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.primary)
-    .setTitle('📝 Applications')
+    .setTitle('📝 Applications — General')
     .setDescription(
       `**Review channel:** ${cfg.applicationChannelId ? `<#${cfg.applicationChannelId}>` : '_Not set_'}\n` +
-      `**Accept role(s):** ${acceptRoleIds.length > 0 ? acceptRoleIds.map(id => `<@&${id}>`).join(', ') : '_Not set_'} _(select up to 2)_\n` +
-      `**Blacklisted role(s):** ${blacklistRoleIds.length > 0 ? blacklistRoleIds.map(id => `<@&${id}>`).join(', ') : '_None_'}\n` +
+      `**Ping role on submit:** ${cfg.applicationPingRoleId ? `<@&${cfg.applicationPingRoleId}>` : '_None_'}\n` +
       `**Status:** ${cfg.applicationsOpen !== false ? '✅ Open' : '🔒 Closed'}\n` +
       `**Questions configured:** ${questionCount}\n\n` +
-      `_Manage questions with \`/application question add/remove/list\`. Post the Apply button with \`/application panel\`._`
+      `_Manage questions with \`/application question add/remove/list\`. Post the Apply button with \`/application panel\`. Accept/blacklist roles are on the next page._`
     );
 
   const rows = [
@@ -167,10 +165,7 @@ function applicationsPage(guild) {
         .addChannelTypes(ChannelType.GuildText).setMinValues(1).setMaxValues(1)
     ),
     new ActionRowBuilder().addComponents(
-      new RoleSelectMenuBuilder().setCustomId('panel_role_appaccept').setPlaceholder('Set accept role(s) — up to 2').setMinValues(1).setMaxValues(2)
-    ),
-    new ActionRowBuilder().addComponents(
-      new RoleSelectMenuBuilder().setCustomId('panel_role_appblacklist').setPlaceholder('Set blacklisted role(s)').setMinValues(1).setMaxValues(5)
+      new RoleSelectMenuBuilder().setCustomId('panel_role_appping').setPlaceholder('Set role to ping on new submissions').setMinValues(1).setMaxValues(1)
     ),
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('panel_app_toggle').setLabel(cfg.applicationsOpen !== false ? 'Close Applications' : 'Open Applications')
@@ -181,12 +176,37 @@ function applicationsPage(guild) {
   return { embed, rows };
 }
 
+function applications2Page(guild) {
+  const cfg = db.guildConfig.get(guild.id, {});
+  const acceptRoleIds = cfg.applicationAcceptRoleIds || (cfg.applicationAcceptRoleId ? [cfg.applicationAcceptRoleId] : []);
+  const blacklistRoleIds = cfg.applicationBlacklistRoleIds || [];
+
+  const embed = new EmbedBuilder()
+    .setColor(COLORS.primary)
+    .setTitle('🎓 Applications — Roles')
+    .setDescription(
+      `**Accept role(s):** ${acceptRoleIds.length > 0 ? acceptRoleIds.map(id => `<@&${id}>`).join(', ') : '_Not set_'} _(select up to 2)_\n` +
+      `**Blacklisted role(s):** ${blacklistRoleIds.length > 0 ? blacklistRoleIds.map(id => `<@&${id}>`).join(', ') : '_None_'}`
+    );
+
+  const rows = [
+    new ActionRowBuilder().addComponents(
+      new RoleSelectMenuBuilder().setCustomId('panel_role_appaccept').setPlaceholder('Set accept role(s) — up to 2').setMinValues(1).setMaxValues(2)
+    ),
+    new ActionRowBuilder().addComponents(
+      new RoleSelectMenuBuilder().setCustomId('panel_role_appblacklist').setPlaceholder('Set blacklisted role(s)').setMinValues(1).setMaxValues(5)
+    )
+  ];
+  return { embed, rows };
+}
+
 function renderPage(guild, page) {
   let embed, rows;
   if (page === 'roles') ({ embed, rows } = rolesPage(guild));
   else if (page === 'channels1') ({ embed, rows } = channels1Page(guild));
   else if (page === 'channels2') ({ embed, rows } = channels2Page(guild));
-  else if (page === 'applications') ({ embed, rows } = applicationsPage(guild));
+  else if (page === 'applications1') ({ embed, rows } = applications1Page(guild));
+  else if (page === 'applications2') ({ embed, rows } = applications2Page(guild));
   else ({ embed, rows } = featuresPage(guild)); // default: features
 
   const components = [navRow(page), ...rows];
@@ -208,7 +228,8 @@ const ROLE_KEY_MAP = {
   staff: 'staffRoleId',
   mod: 'modRoleId',
   appaccept: 'applicationAcceptRoleIds',
-  appblacklist: 'applicationBlacklistRoleIds'
+  appblacklist: 'applicationBlacklistRoleIds',
+  appping: 'applicationPingRoleId'
 };
 
 // Which role-select keys store an array of role IDs (vs. a single role ID)
@@ -242,7 +263,7 @@ async function route(interaction) {
     const cfg = db.guildConfig.get(interaction.guild.id, {});
     const newState = !(cfg.applicationsOpen !== false);
     db.guildConfig.update(interaction.guild.id, c => ({ ...c, applicationsOpen: newState }));
-    const { embed, components } = renderPage(interaction.guild, 'applications');
+    const { embed, components } = renderPage(interaction.guild, 'applications1');
     return interaction.update({ embeds: [embed], components });
   }
 
@@ -251,7 +272,9 @@ async function route(interaction) {
     const dbKey = ROLE_KEY_MAP[shortKey];
     const value = MULTI_VALUE_ROLE_KEYS.has(shortKey) ? interaction.values : interaction.values[0];
     db.guildConfig.update(interaction.guild.id, cfg => ({ ...cfg, [dbKey]: value }));
-    const page = (shortKey === 'appaccept' || shortKey === 'appblacklist') ? 'applications' : 'roles';
+    let page = 'roles';
+    if (shortKey === 'appaccept' || shortKey === 'appblacklist') page = 'applications2';
+    if (shortKey === 'appping') page = 'applications1';
     const { embed, components } = renderPage(interaction.guild, page);
     return interaction.update({ embeds: [embed], components });
   }
@@ -263,7 +286,7 @@ async function route(interaction) {
     db.guildConfig.update(interaction.guild.id, cfg => ({ ...cfg, [dbKey]: channelId }));
     let page = 'channels1';
     if (['suggestions', 'ticketcategory', 'transcript'].includes(shortKey)) page = 'channels2';
-    if (shortKey === 'applications') page = 'applications';
+    if (shortKey === 'applications') page = 'applications1';
     const { embed, components } = renderPage(interaction.guild, page);
     return interaction.update({ embeds: [embed], components });
   }
