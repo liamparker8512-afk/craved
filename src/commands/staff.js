@@ -11,7 +11,10 @@ const { COLORS, successEmbed, errorEmbed } = require('../utils/embeds');
 const { isAdmin } = require('../utils/permissions');
 
 // --- Self-contained storage (kept separate from database.js on purpose) ---
-const DATA_FILE = path.join(__dirname, '..', 'data', 'staffRecords.json');
+// Uses the same DATA_DIR env var convention as database.js so both point at the
+// same persistent volume on hosts like Railway (where the app's build path can vary).
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+const DATA_FILE = path.join(DATA_DIR, 'staffRecords.json');
 
 function loadRecords() {
   if (!fs.existsSync(path.dirname(DATA_FILE))) fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
@@ -44,14 +47,17 @@ function updateRecord(guildId, userId, updater) {
   return updated;
 }
 
-async function logToChannel(guild, embed) {
+async function logToChannel(guild, embed, invokingChannelId) {
   const cfg = db.guildConfig.get(guild.id, {});
   const channelId = cfg.staffLogChannelId || cfg.logChannelId;
-  if (!channelId) return false;
+  if (!channelId) return 'not-configured';
+  // If the configured log channel is the same channel the command was run in,
+  // the reply embed below already serves as the log — don't post a second copy.
+  if (channelId === invokingChannelId) return 'same-channel';
   const channel = await guild.channels.fetch(channelId).catch(() => null);
-  if (!channel) return false;
+  if (!channel) return 'not-configured';
   await channel.send({ embeds: [embed] }).catch(() => {});
-  return true;
+  return 'sent';
 }
 
 async function dmUser(user, embed) {
@@ -153,10 +159,10 @@ module.exports = {
         )
         .setTimestamp();
 
-      const logged = await logToChannel(guild, embed);
+      const logStatus = await logToChannel(guild, embed, interaction.channel.id);
       await dmUser(target, EmbedBuilder.from(embed).setDescription(`This happened in **${guild.name}**.`));
 
-      if (!logged) {
+      if (logStatus === 'not-configured') {
         embed.setFooter({ text: '⚠️ No staff log channel is configured — use /staff setlogchannel so these are recorded somewhere visible.' });
       }
       return interaction.reply({ embeds: [embed] });
@@ -182,10 +188,10 @@ module.exports = {
         )
         .setTimestamp();
 
-      const logged = await logToChannel(guild, embed);
+      const logStatus = await logToChannel(guild, embed, interaction.channel.id);
       await dmUser(target, EmbedBuilder.from(embed).setDescription(`You received a strike in **${guild.name}**.`));
 
-      if (!logged) {
+      if (logStatus === 'not-configured') {
         embed.setFooter({ text: '⚠️ No staff log channel is configured — use /staff setlogchannel so these are recorded somewhere visible.' });
       }
       return interaction.reply({ embeds: [embed] });
@@ -216,7 +222,7 @@ module.exports = {
         )
         .setTimestamp();
 
-      await logToChannel(guild, embed);
+      await logToChannel(guild, embed, interaction.channel.id);
       return interaction.reply({ embeds: [embed] });
     }
 
@@ -240,7 +246,7 @@ module.exports = {
         )
         .setTimestamp();
 
-      await logToChannel(guild, embed);
+      await logToChannel(guild, embed, interaction.channel.id);
       return interaction.reply({ embeds: [embed] });
     }
 
