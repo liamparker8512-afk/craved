@@ -1,8 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
+// If DATA_DIR is set (e.g. on Railway/Render, pointed at a mounted persistent volume),
+// use that exact path — otherwise fall back to a "data" folder next to the project root.
+// This avoids needing to guess where the platform actually puts your app's code.
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+console.log(`💾 Bot data directory: ${DATA_DIR}`);
 
 const FILES = {
   guildConfig: 'guildConfig.json',
@@ -39,7 +43,6 @@ function load(name) {
 
 let saveTimers = {};
 function save(name) {
-  // Debounce writes slightly so bursts of updates don't hammer disk I/O
   clearTimeout(saveTimers[name]);
   saveTimers[name] = setTimeout(() => {
     fs.writeFileSync(filePath(name), JSON.stringify(cache[name], null, 2));
@@ -56,8 +59,6 @@ class Store {
   get(key, fallback = undefined) {
     const data = load(this.name);
     const value = Object.prototype.hasOwnProperty.call(data, key) ? data[key] : fallback;
-    // Return a clone, not the live cached reference — prevents accidental mutation
-    // of in-memory state by callers that forget to call set()/update() afterward.
     if (value !== null && typeof value === 'object') {
       return JSON.parse(JSON.stringify(value));
     }
