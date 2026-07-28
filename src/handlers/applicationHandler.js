@@ -33,6 +33,7 @@ function getConfig(guildId) {
     channelId: cfg.applicationChannelId || null,
     acceptRoleIds,
     blacklistRoleIds,
+    pingRoleId: cfg.applicationPingRoleId || null,
     open: cfg.applicationsOpen !== false
   };
 }
@@ -150,7 +151,8 @@ async function startApplication(interaction) {
     .setFooter({ text: `Submission ID: ${submissionId}` })
     .setTimestamp();
 
-  await reviewChannel.send({ embeds: [embed], components: [reviewButtons(submissionId)] });
+  const pingContent = cfg.pingRoleId ? `<@&${cfg.pingRoleId}>` : undefined;
+  await reviewChannel.send({ content: pingContent, embeds: [embed], components: [reviewButtons(submissionId)] });
   await dmChannel.send({ embeds: [successEmbed('Your application has been submitted! Staff will review it and get back to you.')] }).catch(() => {});
 }
 
